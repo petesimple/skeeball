@@ -1,4 +1,6 @@
-/* Classic Skee Ball - Beta (classic scoring, drop into holes, misses return) */
+/* Classic Skee Ball - Beta (classic scoring, drop into holes, misses return)
+   Scoreboard upgrade: split-flap flip digits + cascade
+*/
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -105,7 +107,7 @@ function resetBallToStart() {
   ball.drawR = ball.baseR;
 }
 
-/* ---------- Scoreboard ---------- */
+/* ---------- Scoreboard (split-flap flip digits + cascade) ---------- */
 const DIGITS = 4;
 const digitEls = [];
 
@@ -113,24 +115,87 @@ function pad4(n) {
   return String(Math.max(0, Math.min(9999, Math.floor(n)))).padStart(4, "0");
 }
 
+function makeDigit(initialChar) {
+  const digit = document.createElement("div");
+  digit.className = "digit";
+  digit.dataset.value = initialChar;
+
+  const topHalf = document.createElement("div");
+  topHalf.className = "half topHalf";
+  topHalf.textContent = initialChar;
+
+  const bottomHalf = document.createElement("div");
+  bottomHalf.className = "half bottomHalf";
+  bottomHalf.textContent = initialChar;
+
+  const flipTop = document.createElement("div");
+  flipTop.className = "flipTop";
+  flipTop.textContent = initialChar;
+
+  const flipBottom = document.createElement("div");
+  flipBottom.className = "flipBottom";
+  flipBottom.textContent = initialChar;
+
+  digit.appendChild(topHalf);
+  digit.appendChild(bottomHalf);
+  digit.appendChild(flipTop);
+  digit.appendChild(flipBottom);
+
+  digit._parts = { topHalf, bottomHalf, flipTop, flipBottom };
+  return digit;
+}
+
 function initScoreboard() {
   digitsWrap.innerHTML = "";
   digitEls.length = 0;
   const s = pad4(displayedScore);
+
   for (let i = 0; i < DIGITS; i++) {
-    const el = document.createElement("div");
-    el.className = "digit";
-    el.textContent = s[i];
+    const el = makeDigit(s[i]);
     digitEls.push(el);
     digitsWrap.appendChild(el);
   }
 }
 initScoreboard();
 
-function updateScoreboardInstant(score) {
-  const s = pad4(score);
-  digitEls.forEach((el, i) => (el.textContent = s[i]));
-  displayedScore = score;
+function flipDigit(idx, fromChar, toChar) {
+  const el = digitEls[idx];
+  if (!el) return;
+
+  // prevent animation pileups during fast cascades
+  if (el.classList.contains("flipping")) return;
+
+  const { topHalf, bottomHalf, flipTop, flipBottom } = el._parts;
+
+  topHalf.textContent = fromChar;
+  bottomHalf.textContent = fromChar;
+
+  flipTop.textContent = fromChar;
+  flipBottom.textContent = toChar;
+
+  el.classList.add("flipping");
+
+  setTimeout(() => {
+    topHalf.textContent = toChar;
+    bottomHalf.textContent = toChar;
+  }, 140);
+
+  setTimeout(() => {
+    el.classList.remove("flipping");
+    el.dataset.value = toChar;
+    flipTop.textContent = toChar;
+    flipBottom.textContent = toChar;
+  }, 140 + 140 + 16);
+}
+
+function updateScoreboardTo(targetScore) {
+  const from = pad4(displayedScore);
+  const to = pad4(targetScore);
+
+  for (let i = 0; i < DIGITS; i++) {
+    if (from[i] !== to[i]) flipDigit(i, from[i], to[i]);
+  }
+  displayedScore = targetScore;
 }
 
 function sleep(ms) {
@@ -143,8 +208,17 @@ async function cascadeAdd(points) {
   const end = Math.min(9999, start + points);
 
   for (let v = start + 1; v <= end; v++) {
-    updateScoreboardInstant(v);
-    await sleep(12);
+    const prev = pad4(v - 1);
+    const next = pad4(v);
+
+    // add a little extra delay on rollovers for mechanical feel
+    let rollover = false;
+    for (let i = 0; i < 4; i++) {
+      if (prev[i] === "9" && next[i] === "0") rollover = true;
+    }
+
+    updateScoreboardTo(v);
+    await sleep(14 + (rollover ? 6 : 0));
   }
 
   await sleep(60);
@@ -180,7 +254,7 @@ function resetRound() {
   ballsUsed = 0;
   lastAward = null;
   updateBallCount();
-  initScoreboard();
+  initScoreboard();     // rebuild split-flap DOM to 0000
   resetBallToStart();
 }
 resetRound();
@@ -354,9 +428,8 @@ function update() {
 
     // complete miss at ramp, ball never gets near the board, it returns and counts as a 0
     if (ball.state === "up") {
-      // if it slows and starts drifting back downward past the jump line, treat as a miss return
-      const jumpY = canvas.height * 0.52;
-      if (ball.hopped === false && ball.vy > 0 && ball.y > jumpY + 30 * dpr) {
+      const jumpY2 = canvas.height * 0.52;
+      if (ball.hopped === false && ball.vy > 0 && ball.y > jumpY2 + 30 * dpr) {
         ball.state = "return";
         ball.vy = Math.abs(ball.vy) * 0.55 + 6.5 * dpr;
         ball.vx *= 0.45;
@@ -383,7 +456,6 @@ function update() {
     const duration = 22; // frames
     const p = Math.min(1, ball.t / duration);
 
-    // ease in
     const ease = 1 - Math.pow(1 - p, 3);
 
     ball.x = ball.startX + (ball.targetX - ball.startX) * ease;
@@ -497,18 +569,6 @@ function drawBoardAndHoles(lr) {
 
 function drawBall() {
   const r = (ball.state === "drop") ? ball.drawR : ball.baseR;
-
-  // draw resting ball if idle and round is not over
-  if (ball.state === "idle" && ballsUsed < ROUND_BALLS) {
-    ctx.fillStyle = "rgba(0,0,0,0.30)";
-    ctx.beginPath();
-    ctx.ellipse(ball.x + 6 * dpr, ball.y + 10 * dpr, 18 * dpr, 8 * dpr, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  if (!ball.active && ball.state !== "drop") {
-    // idle draw below
-  }
 
   // shadow
   ctx.fillStyle = "rgba(0,0,0,0.28)";
