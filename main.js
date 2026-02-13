@@ -1,4 +1,4 @@
-/* Classic Skee Ball - Beta Working Version (with rails, jump point, holes) */
+/* Classic Skee Ball - Beta (classic scoring, drop into holes, misses return) */
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -25,27 +25,8 @@ resize();
 const ROUND_BALLS = 9;
 
 const MODES = {
-  standard: {
-    label: "Standard",
-    outcomes: [
-      { score: 10, w: 38 },
-      { score: 20, w: 30 },
-      { score: 30, w: 18 },
-      { score: 40, w: 10 },
-      { score: 50, w: 4 },
-    ],
-  },
-  deluxe: {
-    label: "Deluxe",
-    outcomes: [
-      { score: 10, w: 34 },
-      { score: 20, w: 28 },
-      { score: 30, w: 18 },
-      { score: 40, w: 10 },
-      { score: 50, w: 5 },
-      { score: 100, w: 5 },
-    ],
-  }
+  standard: { label: "Standard" },
+  deluxe: { label: "Deluxe" }
 };
 
 let mode = "standard";
@@ -60,25 +41,33 @@ let lastAward = null;
 const ball = {
   x: 0,
   y: 0,
-  r: 16,          // in CSS pixels, applied with dpr in draw
   vx: 0,
   vy: 0,
   active: false,
-  hopped: false,  // used to avoid repeated hop impulses
+
+  // animation states
+  state: "idle", // idle | up | drop | return
+  t: 0,
+  startX: 0,
+  startY: 0,
+  targetX: 0,
+  targetY: 0,
+  baseR: 16,
+  drawR: 16,
+  hopped: false
 };
 
 /* ---------- Lane Geometry ---------- */
 function laneRect() {
   const w = canvas.width;
   const h = canvas.height;
-  const m = w * 0.12; // side margin
+  const m = w * 0.12;
   return { x: m, w: w - 2 * m, h };
 }
 
-/* Target board geometry */
 function boardGeom() {
   const lr = laneRect();
-  const boardY = 90 * dpr;           // top board area start
+  const boardY = 90 * dpr;
   const boardH = 150 * dpr;
   const cx = lr.x + lr.w / 2;
   const cy = boardY + boardH * 0.55;
@@ -86,21 +75,19 @@ function boardGeom() {
 }
 
 function ringsConfig() {
-  // Radii in px * dpr, tuned to look good at most sizes
   return [
     { score: 10, r: 120 * dpr },
     { score: 20, r: 98 * dpr },
     { score: 30, r: 76 * dpr },
     { score: 40, r: 54 * dpr },
-    { score: 50, r: 34 * dpr },
+    { score: 50, r: 34 * dpr }
   ];
 }
 
 function deluxeHundredsConfig() {
-  // small 100 pockets near the top corners of the board ring area
   return [
     { score: 100, ox: -66 * dpr, oy: -98 * dpr, r: 18 * dpr },
-    { score: 100, ox:  66 * dpr, oy: -98 * dpr, r: 18 * dpr },
+    { score: 100, ox:  66 * dpr, oy: -98 * dpr, r: 18 * dpr }
   ];
 }
 
@@ -112,7 +99,10 @@ function resetBallToStart() {
   ball.vx = 0;
   ball.vy = 0;
   ball.active = false;
+  ball.state = "idle";
+  ball.t = 0;
   ball.hopped = false;
+  ball.drawR = ball.baseR;
 }
 
 /* ---------- Scoreboard ---------- */
@@ -162,23 +152,6 @@ async function cascadeAdd(points) {
   isAnimatingScore = false;
 }
 
-/* ---------- Placeholder Scoring ---------- */
-function weightedPick(outcomes) {
-  const total = outcomes.reduce((a, o) => a + o.w, 0);
-  let r = Math.random() * total;
-  for (const o of outcomes) {
-    r -= o.w;
-    if (r <= 0) return o.score;
-  }
-  return outcomes[outcomes.length - 1].score;
-}
-
-async function awardPlaceholderScore() {
-  const pts = weightedPick(MODES[mode].outcomes);
-  lastAward = { pts, t: performance.now() };
-  await cascadeAdd(pts);
-}
-
 /* ---------- Round Flow ---------- */
 function updateBallCount() {
   const n = Math.min(ROUND_BALLS, ballsUsed + 1);
@@ -186,10 +159,17 @@ function updateBallCount() {
     ballsUsed >= ROUND_BALLS ? "ROUND OVER" : `BALL ${n} OF ${ROUND_BALLS}`;
 }
 
-async function consumeBall() {
+async function consumeBallAndAward(points) {
   ballsUsed++;
   updateBallCount();
-  await awardPlaceholderScore();
+
+  if (points > 0) {
+    lastAward = { pts: points, t: performance.now() };
+    await cascadeAdd(points);
+  } else {
+    lastAward = null;
+  }
+
   if (ballsUsed >= ROUND_BALLS) return;
   resetBallToStart();
 }
@@ -205,11 +185,13 @@ function resetRound() {
 }
 resetRound();
 
-/* ---------- Controls (Forgiving Flick) ---------- */
+/* ---------- Input (forgiving flick anywhere on lane) ---------- */
 let pointerStart = null;
 
 canvas.addEventListener("pointerdown", e => {
-  if (isAnimatingScore || ballsUsed >= ROUND_BALLS) return;
+  if (isAnimatingScore) return;
+  if (ballsUsed >= ROUND_BALLS) return;
+  if (ball.state !== "idle") return;
 
   const rect = canvas.getBoundingClientRect();
   pointerStart = {
@@ -220,7 +202,10 @@ canvas.addEventListener("pointerdown", e => {
 });
 
 canvas.addEventListener("pointerup", e => {
-  if (!pointerStart || isAnimatingScore || ballsUsed >= ROUND_BALLS) return;
+  if (!pointerStart) return;
+  if (isAnimatingScore) return;
+  if (ballsUsed >= ROUND_BALLS) return;
+  if (ball.state !== "idle") return;
 
   const rect = canvas.getBoundingClientRect();
   const end = {
@@ -232,24 +217,20 @@ canvas.addEventListener("pointerup", e => {
   const dx = end.x - pointerStart.x;
   const forward = pointerStart.y - end.y;
 
-  // needs forward flick
-  if (forward < 20 * dpr) {
-    pointerStart = null;
-    return;
-  }
+  pointerStart = null;
 
-  // power curve (distance based for now)
-  const power = Math.min(1, forward / (320 * dpr));
+  if (forward < 18 * dpr) return;
+
+  const power = Math.min(1, forward / (330 * dpr));
   const aim = dx * 0.0022;
 
+  // launch
   resetBallToStart();
-
-  // initial roll
   ball.vx = aim * 12 * dpr;
-  ball.vy = -power * 20 * dpr;
+  ball.vy = -power * 22 * dpr;
   ball.active = true;
-
-  pointerStart = null;
+  ball.state = "up";
+  ball.hopped = false;
 });
 
 /* ---------- Mode ---------- */
@@ -264,76 +245,169 @@ modeDeluxeBtn.onclick = () => setMode("deluxe");
 resetBtn.onclick = resetRound;
 setMode("standard");
 
-/* ---------- Physics ---------- */
-function clamp(v, a, b) {
-  return Math.max(a, Math.min(b, v));
+/* ---------- Scoring logic at board ---------- */
+function resolveBoardHit() {
+  const { cx, cy } = boardGeom();
+  const dx = ball.x - cx;
+  const dy = ball.y - cy;
+
+  // First check Deluxe 100 pockets
+  if (mode === "deluxe") {
+    const pockets = deluxeHundredsConfig();
+    for (const p of pockets) {
+      const px = cx + p.ox;
+      const py = cy + p.oy;
+      const ddx = ball.x - px;
+      const ddy = ball.y - py;
+      const dist = Math.hypot(ddx, ddy);
+      if (dist <= p.r) {
+        return { points: 100, holeX: px, holeY: py };
+      }
+    }
+  }
+
+  // Then check rings (smallest ring wins)
+  const rings = ringsConfig();
+  const distCenter = Math.hypot(dx, dy);
+
+  // 50 pocket is inside smallest ring
+  if (distCenter <= rings[rings.length - 1].r) {
+    return { points: 50, holeX: cx, holeY: cy };
+  }
+  if (distCenter <= rings[3].r) return { points: 40, holeX: cx, holeY: cy };
+  if (distCenter <= rings[2].r) return { points: 30, holeX: cx, holeY: cy };
+  if (distCenter <= rings[1].r) return { points: 20, holeX: cx, holeY: cy };
+  if (distCenter <= rings[0].r) return { points: 10, holeX: cx, holeY: cy };
+
+  // miss
+  return { points: 0, holeX: null, holeY: null };
 }
 
+/* ---------- Physics update ---------- */
 function update() {
   if (!ball.active) return;
 
   const lr = laneRect();
 
-  // simple movement
-  ball.x += ball.vx;
-  ball.y += ball.vy;
-
-  // friction
-  ball.vx *= 0.993;
-  ball.vy *= 0.993;
-
-  // a tiny "gravity" so it settles (still mostly a top down feel)
-  ball.vy += 0.01 * dpr;
-
-  // rails (physics walls)
+  // lane walls
   const railInset = 22 * dpr;
   const left = lr.x + railInset;
   const right = lr.x + lr.w - railInset;
 
-  if (ball.x < left) {
-    ball.x = left;
-    ball.vx *= -0.55;
-  }
-  if (ball.x > right) {
-    ball.x = right;
-    ball.vx *= -0.55;
+  if (ball.state === "up" || ball.state === "return") {
+    // movement
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    // friction
+    ball.vx *= 0.993;
+    ball.vy *= 0.993;
+
+    // slight gravity for settling
+    ball.vy += 0.010 * dpr;
+
+    // rails bounce
+    if (ball.x < left) {
+      ball.x = left;
+      ball.vx *= -0.55;
+    }
+    if (ball.x > right) {
+      ball.x = right;
+      ball.vx *= -0.55;
+    }
+
+    // jump point
+    const jumpY = canvas.height * 0.52;
+    if (!ball.hopped && ball.state === "up" && ball.y < jumpY) {
+      ball.hopped = true;
+      ball.vy -= 2.6 * dpr;
+      ball.vx *= 0.92;
+    }
+
+    const { boardY } = boardGeom();
+    const triggerY = boardY + 18 * dpr;
+
+    // If we reach the board while going up, score or miss
+    if (ball.state === "up" && ball.y <= triggerY) {
+      const res = resolveBoardHit();
+
+      if (res.points > 0) {
+        // drop animation into the hole
+        ball.state = "drop";
+        ball.t = 0;
+        ball.startX = ball.x;
+        ball.startY = ball.y;
+        ball.targetX = res.holeX;
+        ball.targetY = res.holeY;
+        ball._pendingPoints = res.points;
+
+        // stop physics while dropping
+        ball.vx = 0;
+        ball.vy = 0;
+      } else {
+        // board miss, return down the lane
+        ball.state = "return";
+        ball.vy = Math.abs(ball.vy) * 0.55 + 6.5 * dpr;
+        ball.vx *= 0.45;
+      }
+    }
+
+    // complete miss at ramp, ball never gets near the board, it returns and counts as a 0
+    if (ball.state === "up") {
+      // if it slows and starts drifting back downward past the jump line, treat as a miss return
+      const jumpY = canvas.height * 0.52;
+      if (ball.hopped === false && ball.vy > 0 && ball.y > jumpY + 30 * dpr) {
+        ball.state = "return";
+        ball.vy = Math.abs(ball.vy) * 0.55 + 6.5 * dpr;
+        ball.vx *= 0.45;
+      }
+    }
+
+    // return finished when it reaches the bottom zone
+    if (ball.state === "return" && ball.y >= canvas.height - 60 * dpr) {
+      ball.active = false;
+      consumeBallAndAward(0);
+    }
+
+    // safety
+    if (ball.y > canvas.height + 180 * dpr) {
+      ball.active = false;
+      consumeBallAndAward(0);
+    }
   }
 
-  // jump point (ramp hop)
-  // when crossing this line going upward, give a small extra kick
-  const jumpY = canvas.height * 0.52;
-  if (!ball.hopped && ball.y < jumpY) {
-    ball.hopped = true;
-    // hop impulse
-    ball.vy -= 2.6 * dpr;
-    // tighten aim a tiny bit during hop so it feels like the lane guides it
-    ball.vx *= 0.92;
-  }
+  if (ball.state === "drop") {
+    // animate into hole
+    ball.t += 1;
 
-  // backboard trigger (placeholder scoring for now)
-  const { boardY } = boardGeom();
-  const triggerY = boardY + 16 * dpr;
+    const duration = 22; // frames
+    const p = Math.min(1, ball.t / duration);
 
-  if (ball.y <= triggerY) {
-    ball.active = false;
-    consumeBall();
-  }
+    // ease in
+    const ease = 1 - Math.pow(1 - p, 3);
 
-  // if ball drifts off bottom (rare)
-  if (ball.y > canvas.height + 140 * dpr) {
-    ball.active = false;
-    resetBallToStart();
+    ball.x = ball.startX + (ball.targetX - ball.startX) * ease;
+    ball.y = ball.startY + (ball.targetY - ball.startY) * ease;
+
+    // shrink as it drops
+    ball.drawR = ball.baseR * (1 - 0.65 * ease);
+
+    if (p >= 1) {
+      ball.active = false;
+      ball.drawR = ball.baseR;
+      const pts = ball._pendingPoints || 0;
+      ball._pendingPoints = 0;
+      consumeBallAndAward(pts);
+    }
   }
 }
 
 /* ---------- Drawing ---------- */
 function drawRails(lr) {
-  // rails shadows
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.fillRect(lr.x - 10 * dpr, 0, 10 * dpr, canvas.height);
   ctx.fillRect(lr.x + lr.w, 0, 10 * dpr, canvas.height);
 
-  // inner rail highlights
   ctx.fillStyle = "rgba(255,255,255,0.07)";
   ctx.fillRect(lr.x, 0, 4 * dpr, canvas.height);
   ctx.fillRect(lr.x + lr.w - 4 * dpr, 0, 4 * dpr, canvas.height);
@@ -342,11 +416,9 @@ function drawRails(lr) {
 function drawJumpPoint(lr) {
   const y = canvas.height * 0.52;
 
-  // ramp band
   ctx.fillStyle = "rgba(255,255,255,0.06)";
   ctx.fillRect(lr.x, y - 10 * dpr, lr.w, 20 * dpr);
 
-  // ramp line
   ctx.strokeStyle = "rgba(0,0,0,0.35)";
   ctx.lineWidth = 2 * dpr;
   ctx.beginPath();
@@ -354,7 +426,6 @@ function drawJumpPoint(lr) {
   ctx.lineTo(lr.x + lr.w, y);
   ctx.stroke();
 
-  // tiny label
   ctx.fillStyle = "rgba(255,255,255,0.25)";
   ctx.font = `${Math.floor(12 * dpr)}px system-ui`;
   ctx.textAlign = "center";
@@ -364,11 +435,9 @@ function drawJumpPoint(lr) {
 function drawBoardAndHoles(lr) {
   const { boardY, boardH, cx, cy } = boardGeom();
 
-  // board plate
   ctx.fillStyle = "rgba(0,0,0,0.30)";
   ctx.fillRect(lr.x + lr.w * 0.06, boardY, lr.w * 0.88, boardH);
 
-  // ring outlines
   ctx.save();
   ctx.translate(cx, cy);
 
@@ -380,7 +449,6 @@ function drawBoardAndHoles(lr) {
     ctx.arc(0, 0, ring.r, 0, Math.PI * 2);
     ctx.stroke();
 
-    // hole lip shading (gives it a "hole" look)
     ctx.strokeStyle = "rgba(0,0,0,0.25)";
     ctx.lineWidth = 6 * dpr;
     ctx.beginPath();
@@ -388,14 +456,13 @@ function drawBoardAndHoles(lr) {
     ctx.stroke();
   }
 
-  // center pocket (50) filled darker to read as hole
-  const centerR = rings[rings.length - 1].r;
+  // center hole
   ctx.fillStyle = "rgba(0,0,0,0.45)";
   ctx.beginPath();
-  ctx.arc(0, 0, centerR - 6 * dpr, 0, Math.PI * 2);
+  ctx.arc(0, 0, rings[rings.length - 1].r - 6 * dpr, 0, Math.PI * 2);
   ctx.fill();
 
-  // Deluxe 100 pockets
+  // deluxe 100 holes
   if (mode === "deluxe") {
     const hundreds = deluxeHundredsConfig();
     for (const p of hundreds) {
@@ -412,16 +479,13 @@ function drawBoardAndHoles(lr) {
     }
   }
 
-  // simple labels
+  // labels
   ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.font = `${Math.floor(14 * dpr)}px system-ui`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  for (const ring of rings) ctx.fillText(String(ring.score), 0, -ring.r + 16 * dpr);
 
-  // label positions near top of each ring
-  for (const ring of rings) {
-    ctx.fillText(String(ring.score), 0, -ring.r + 16 * dpr);
-  }
   if (mode === "deluxe") {
     ctx.font = `${Math.floor(12 * dpr)}px system-ui`;
     ctx.fillText("100", -66 * dpr, -98 * dpr);
@@ -432,26 +496,19 @@ function drawBoardAndHoles(lr) {
 }
 
 function drawBall() {
-  // resting ball if inactive and round not over
-  if (!ball.active && ballsUsed < ROUND_BALLS) {
-    // shadow
+  const r = (ball.state === "drop") ? ball.drawR : ball.baseR;
+
+  // draw resting ball if idle and round is not over
+  if (ball.state === "idle" && ballsUsed < ROUND_BALLS) {
     ctx.fillStyle = "rgba(0,0,0,0.30)";
     ctx.beginPath();
     ctx.ellipse(ball.x + 6 * dpr, ball.y + 10 * dpr, 18 * dpr, 8 * dpr, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    // ball
-    const rg = ctx.createRadialGradient(ball.x - 6 * dpr, ball.y - 8 * dpr, 2 * dpr, ball.x, ball.y, 22 * dpr);
-    rg.addColorStop(0, "#ffffff");
-    rg.addColorStop(1, "#cfc7bf");
-    ctx.fillStyle = rg;
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, 16 * dpr, 0, Math.PI * 2);
-    ctx.fill();
-    return;
   }
 
-  if (!ball.active) return;
+  if (!ball.active && ball.state !== "drop") {
+    // idle draw below
+  }
 
   // shadow
   ctx.fillStyle = "rgba(0,0,0,0.28)";
@@ -465,7 +522,7 @@ function drawBall() {
   rg.addColorStop(1, "#cfc7bf");
   ctx.fillStyle = rg;
   ctx.beginPath();
-  ctx.arc(ball.x, ball.y, 16 * dpr, 0, Math.PI * 2);
+  ctx.arc(ball.x, ball.y, r * dpr, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -496,7 +553,7 @@ function draw() {
   ctx.fillStyle = lg;
   ctx.fillRect(lr.x, 0, lr.w, canvas.height);
 
-  // subtle plank lines
+  // plank lines
   ctx.globalAlpha = 0.16;
   ctx.strokeStyle = "rgba(255,255,255,0.12)";
   ctx.lineWidth = 2 * dpr;
@@ -512,8 +569,20 @@ function draw() {
   drawRails(lr);
   drawJumpPoint(lr);
   drawBoardAndHoles(lr);
-  drawBall();
+
+  // draw ball when active or idle
+  if (ball.state !== "idle" || (ball.state === "idle" && ballsUsed < ROUND_BALLS)) {
+    drawBall();
+  }
+
   drawAwardPop();
+
+  if (ball.state === "idle" && ballsUsed < ROUND_BALLS && !isAnimatingScore) {
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `${Math.floor(14 * dpr)}px system-ui`;
+    ctx.textAlign = "center";
+    ctx.fillText("Flick up the lane to roll", canvas.width / 2, canvas.height - 24 * dpr);
+  }
 }
 
 /* ---------- Loop ---------- */
@@ -522,5 +591,6 @@ function loop() {
   draw();
   requestAnimationFrame(loop);
 }
+
 resetBallToStart();
 loop();
