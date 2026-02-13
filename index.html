@@ -282,6 +282,83 @@
       canvas{ height: calc(100vh - 350px); min-height: 440px; }
       .meta{ min-width: unset; }
     }
+    /* --- Split-flap digit layout fix (prevents "double numbers") --- */
+#digits { display: flex; gap: 14px; }
+
+.digit{
+  position: relative;
+  width: 90px;
+  height: 120px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #070606;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 10px 24px rgba(0,0,0,.45);
+}
+
+/* Center the glyph */
+.digit .half,
+.digit .flipTop,
+.digit .flipBottom{
+  position: absolute;
+  left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  font-weight: 800;
+  font-size: 86px;
+  line-height: 1;
+  color: #f6f2ee;
+  text-shadow: 0 2px 0 rgba(0,0,0,.55);
+}
+
+/* Static halves */
+.digit .topHalf{ top: 0; height: 50%; clip-path: inset(0 0 50% 0); }
+.digit .bottomHalf{ bottom: 0; height: 50%; clip-path: inset(50% 0 0 0); }
+
+/* Hinge line */
+.digit::after{
+  content:"";
+  position:absolute;
+  left:0; right:0;
+  top:50%;
+  height:2px;
+  background: rgba(255,255,255,.09);
+  transform: translateY(-1px);
+}
+
+/* Animated flaps: hidden unless flipping */
+.digit .flipTop,
+.digit .flipBottom{ opacity: 0; }
+
+.digit.flipping .flipTop,
+.digit.flipping .flipBottom{ opacity: 1; }
+
+.digit .flipTop{
+  top: 0; height: 50%;
+  transform-origin: bottom;
+}
+.digit .flipBottom{
+  bottom: 0; height: 50%;
+  transform-origin: top;
+}
+
+/* Simple flip animation (works with your JS timing) */
+.digit.flipping .flipTop{
+  animation: flapTop 0.14s linear forwards;
+}
+.digit.flipping .flipBottom{
+  animation: flapBottom 0.14s linear 0.14s forwards;
+}
+
+@keyframes flapTop{
+  from{ transform: perspective(700px) rotateX(0deg); }
+  to{ transform: perspective(700px) rotateX(-90deg); }
+}
+@keyframes flapBottom{
+  from{ transform: perspective(700px) rotateX(90deg); }
+  to{ transform: perspective(700px) rotateX(0deg); }
+}
   </style>
 </head>
 <body>
