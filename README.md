@@ -15,7 +15,7 @@ Once you enable GitHub Pages, your game will be available at your repo’s Pages
 Because this is a PWA, use a local server (not `file://`).
 
 ### Option A - Python
-```bash
+
 python3 -m http.server 8000
 
 Open:
