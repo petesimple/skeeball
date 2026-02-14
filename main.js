@@ -122,19 +122,37 @@ function makeDigit(initialChar) {
 
   const topHalf = document.createElement("div");
   topHalf.className = "half topHalf";
-  topHalf.textContent = initialChar;
 
   const bottomHalf = document.createElement("div");
   bottomHalf.className = "half bottomHalf";
-  bottomHalf.textContent = initialChar;
 
   const flipTop = document.createElement("div");
   flipTop.className = "flipTop";
-  flipTop.textContent = initialChar;
 
   const flipBottom = document.createElement("div");
   flipBottom.className = "flipBottom";
-  flipBottom.textContent = initialChar;
+
+  // full-height glyph inside each window
+  const g1 = document.createElement("span");
+  g1.className = "glyph";
+  g1.textContent = initialChar;
+
+  const g2 = document.createElement("span");
+  g2.className = "glyph";
+  g2.textContent = initialChar;
+
+  const g3 = document.createElement("span");
+  g3.className = "glyph";
+  g3.textContent = initialChar;
+
+  const g4 = document.createElement("span");
+  g4.className = "glyph";
+  g4.textContent = initialChar;
+
+  topHalf.appendChild(g1);
+  bottomHalf.appendChild(g2);
+  flipTop.appendChild(g3);
+  flipBottom.appendChild(g4);
 
   digit.appendChild(topHalf);
   digit.appendChild(bottomHalf);
