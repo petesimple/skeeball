@@ -122,7 +122,7 @@ body{
 }
 .btn:active{ transform: translateY(1px); }
 
-/* ================= SCOREBOARD ================= */
+/* ================= SCOREBOARD (clean split-flap) ================= */
 
 .scoreboard{
   display:flex;
@@ -130,8 +130,8 @@ body{
   justify-content:center;
   gap:14px;
   margin-top:10px;
-  padding:12px;
-  border-radius:16px;
+  padding:10px 8px 8px;
+  border-radius: 16px;
   background: radial-gradient(900px 280px at 50% 10%, rgba(255,255,255,.08), rgba(0,0,0,.25));
   border:1px solid rgba(255,255,255,.10);
 }
@@ -139,14 +139,20 @@ body{
 .digits{
   display:flex;
   gap:10px;
+  align-items:center;
+  justify-content:center;
 }
 
+/* One flip digit module */
 .digit{
-  width:56px;
-  height:72px;
+  --w:56px;
+  --h:72px;
+  --fs:46px;
+  width:var(--w);
+  height:var(--h);
   position:relative;
   border-radius:12px;
-  background:#050505;
+  background:#070606;
   border:1px solid rgba(255,255,255,.12);
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.6), 0 10px 22px rgba(0,0,0,.45);
   overflow:hidden;
@@ -158,64 +164,74 @@ body{
   left:0; right:0;
   top:50%;
   height:1px;
-  background: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.10);
+  transform: translateY(-.5px);
+  pointer-events:none;
 }
 
-/* shared half styles */
+/* Halves are windows */
 .digit .half,
 .digit .flipTop,
 .digit .flipBottom{
   position:absolute;
   left:0; right:0;
   height:50%;
+  overflow:hidden;
+  backface-visibility:hidden;
+  user-select:none;
+  pointer-events:none;
+}
+
+/* Window positions */
+.digit .topHalf{ top:0; }
+.digit .bottomHalf{ bottom:0; }
+.digit .flipTop{ top:0; transform-origin: 50% 100%; background:#070606; transform: rotateX(0deg); }
+.digit .flipBottom{ bottom:0; transform-origin: 50% 0%; background:#070606; transform: rotateX(90deg); }
+
+/* The glyph is full-height and gets clipped by the window */
+.digit .glyph{
+  position:absolute;
+  left:0; right:0;
+  height:var(--h);
+  top:0;
   display:flex;
+  align-items:center;
   justify-content:center;
   font-weight:900;
-  font-size:46px;
+  font-size:var(--fs);
   font-variant-numeric: tabular-nums;
   letter-spacing:1px;
   color:#f6f2ee;
-  text-shadow:0 2px 0 rgba(0,0,0,.65);
-  backface-visibility:hidden;
-  overflow:hidden;
+  text-shadow: 0 2px 0 rgba(0,0,0,.65);
 }
 
-/* proper split alignment */
-.topHalf{
-  top:0;
-  align-items:flex-end;
-  padding-bottom:4px;
-}
-.bottomHalf{
-  bottom:0;
-  align-items:flex-start;
-  padding-top:4px;
+/* Key trick: shift the glyph for each window */
+.digit .topHalf .glyph,
+.digit .flipTop .glyph{
+  top:0;                    /* show top half of the full glyph */
 }
 
-/* animated flaps */
-.flipTop{
-  top:0;
-  align-items:flex-end;
-  padding-bottom:4px;
-  transform-origin: bottom;
-  transform: rotateX(0deg);
-  background:#050505;
-}
-.flipBottom{
-  bottom:0;
-  align-items:flex-start;
-  padding-top:4px;
-  transform-origin: top;
-  transform: rotateX(90deg);
-  background:#050505;
+.digit .bottomHalf .glyph,
+.digit .flipBottom .glyph{
+  top: calc(-1 * var(--h) / 2); /* pull the glyph up so the bottom half shows */
 }
 
+/* Flip animation */
 .digit.flipping .flipTop{
   animation: flipTopAnim 140ms ease-in forwards;
 }
 .digit.flipping .flipBottom{
   animation: flipBottomAnim 140ms ease-out forwards;
-  animation-delay:140ms;
+  animation-delay: 140ms;
+}
+
+@keyframes flipTopAnim{
+  to{ transform: rotateX(-90deg); }
+}
+
+/* Small screen tweaks */
+@media (max-width: 520px){
+  .digit{ --w:48px; --h:64px; --fs:40px; }
 }
 
 @keyframes flipTopAnim{
