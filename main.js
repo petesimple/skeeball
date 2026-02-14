@@ -194,15 +194,15 @@ flipBottom.querySelector(".glyph").textContent = toChar;
   el.classList.add("flipping");
 
   setTimeout(() => {
-    topHalf.textContent = toChar;
-    bottomHalf.textContent = toChar;
+    topHalf.querySelector(".glyph").textContent = toChar;
+bottomHalf.querySelector(".glyph").textContent = toChar;
   }, 140);
 
   setTimeout(() => {
     el.classList.remove("flipping");
     el.dataset.value = toChar;
-    flipTop.textContent = toChar;
-    flipBottom.textContent = toChar;
+    flipTop.querySelector(".glyph").textContent = toChar;
+flipBottom.querySelector(".glyph").textContent = toChar;
   }, 140 + 140 + 16);
 }
 
