@@ -185,11 +185,11 @@ function flipDigit(idx, fromChar, toChar) {
 
   const { topHalf, bottomHalf, flipTop, flipBottom } = el._parts;
 
-  topHalf.textContent = fromChar;
-  bottomHalf.textContent = fromChar;
+  topHalf.querySelector(".glyph").textContent = fromChar;
+bottomHalf.querySelector(".glyph").textContent = fromChar;
 
-  flipTop.textContent = fromChar;
-  flipBottom.textContent = toChar;
+flipTop.querySelector(".glyph").textContent = fromChar;
+flipBottom.querySelector(".glyph").textContent = toChar;
 
   el.classList.add("flipping");
 
